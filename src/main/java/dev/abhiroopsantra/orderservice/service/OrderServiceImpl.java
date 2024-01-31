@@ -10,20 +10,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class OrderServiceImpl implements OrderService{
-    private final ModelMapper     modelMapper;
+public class OrderServiceImpl implements OrderService {
+    private final ModelMapper modelMapper;
     private final OrderRepository orderRepository;
-    private final WebClient      webClient;
+    private final WebClient webClient;
+    private final ObjectMapper objectMapper;
 
-    @Override public void createOrder(OrderRequest orderRequest) {
+    @Override
+    public void createOrder(OrderRequest orderRequest) {
         Order order = modelMapper.map(orderRequest, Order.class);
 
         List<OrderLineItem> orderLineItems = orderRequest.getOrderLineItems().stream().map(
@@ -35,7 +37,6 @@ public class OrderServiceImpl implements OrderService{
         CheckOrderAvailabilityRequestDto checkOrderAvailabilityRequestDto = new CheckOrderAvailabilityRequestDto();
         checkOrderAvailabilityRequestDto.setItems(orderRequest.getOrderLineItems().stream().map(this::mapToAvailabilityItemsRequest).toList());
 
-
         ApiResponse response = webClient.post()
                 .uri("http://localhost:8082/api/v1/inventory/checkItemsAvailability")
                 .bodyValue(checkOrderAvailabilityRequestDto)
@@ -43,12 +44,30 @@ public class OrderServiceImpl implements OrderService{
                 .bodyToMono(ApiResponse.class)
                 .block();
 
-        if((boolean) (response != null ? response.data.get("isAvailable") : false)) {
-            orderRepository.save(order);
-            log.info("Order created: {}", order.getId());
-        } else {
+        if (response == null) {
+            throw new BadRequestException("Product is not in stock or Inventory Service is not reachable.");
+        }
+
+        Object data = response.data.get("isAvailable");
+
+        if (!(data instanceof List<?> dataList)) {
+            throw new ClassCastException("The object is not a List");
+        }
+
+        List<InventoryResponse> inventoryResponseList = dataList
+                .stream()
+                .filter(item -> item instanceof LinkedHashMap)
+                .map(item -> objectMapper.convertValue(item, InventoryResponse.class))
+                .toList();
+        boolean allProductsInStock = inventoryResponseList
+                .stream()
+                .allMatch(InventoryResponse::isInStock);
+
+        if (!allProductsInStock) {
             throw new BadRequestException("Product is not in stock");
         }
+        orderRepository.save(order);
+        log.info("Order created: {}", order.getId());
     }
 
     private ItemsRequest mapToAvailabilityItemsRequest(OrderLineItemRequest orderLineItemRequest) {

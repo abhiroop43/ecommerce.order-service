@@ -1,12 +1,11 @@
 package dev.abhiroopsantra.orderservice.dto;
 
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 
 import java.util.HashMap;
 
-@RequiredArgsConstructor
-public class ApiResponse {
-    public String errCode;
-    public String errMessage;
+@Getter @Setter @AllArgsConstructor @NoArgsConstructor public class ApiResponse {
+    public String                  errCode;
+    public String                  errMessage;
     public HashMap<String, Object> data;
 }
