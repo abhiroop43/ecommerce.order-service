@@ -15,34 +15,30 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@Service
-@RequiredArgsConstructor
-@Slf4j
-public class OrderServiceImpl implements OrderService {
-    private final ModelMapper modelMapper;
-    private final OrderRepository orderRepository;
-    private final WebClient webClient;
-    private final ObjectMapper objectMapper;
+@Service @RequiredArgsConstructor @Slf4j public class OrderServiceImpl implements OrderService {
+    private final ModelMapper       modelMapper;
+    private final OrderRepository   orderRepository;
+    private final WebClient.Builder webClientBuilder;
+    private final ObjectMapper      objectMapper;
 
-    @Override
-    public void createOrder(OrderRequest orderRequest) {
+    @Override public void createOrder(OrderRequest orderRequest) {
         Order order = modelMapper.map(orderRequest, Order.class);
 
-        List<OrderLineItem> orderLineItems = orderRequest.getOrderLineItems().stream().map(
-                orderLineItemRequest -> mapToOrderLineItem(orderLineItemRequest, order)).toList();
+        List<OrderLineItem> orderLineItems = orderRequest.getOrderLineItems().stream()
+                                                         .map(orderLineItemRequest -> mapToOrderLineItem(
+                                                                 orderLineItemRequest, order)).toList();
 
         order.setOrderLineItems(orderLineItems);
 
         // call the inventory service to check if the items are available
         CheckOrderAvailabilityRequestDto checkOrderAvailabilityRequestDto = new CheckOrderAvailabilityRequestDto();
-        checkOrderAvailabilityRequestDto.setItems(orderRequest.getOrderLineItems().stream().map(this::mapToAvailabilityItemsRequest).toList());
+        checkOrderAvailabilityRequestDto.setItems(
+                orderRequest.getOrderLineItems().stream().map(this::mapToAvailabilityItemsRequest).toList());
 
-        ApiResponse response = webClient.post()
-                .uri("http://localhost:8082/api/v1/inventory/checkItemsAvailability")
-                .bodyValue(checkOrderAvailabilityRequestDto)
-                .retrieve()
-                .bodyToMono(ApiResponse.class)
-                .block();
+        ApiResponse response = webClientBuilder.build().post()
+                                               .uri("http://inventory-service/api/v1/inventory/checkItemsAvailability")
+                                               .bodyValue(checkOrderAvailabilityRequestDto).retrieve()
+                                               .bodyToMono(ApiResponse.class).block();
 
         if (response == null) {
             throw new BadRequestException("Product is not in stock or Inventory Service is not reachable.");
@@ -54,14 +50,11 @@ public class OrderServiceImpl implements OrderService {
             throw new ClassCastException("The object is not a List");
         }
 
-        List<InventoryResponse> inventoryResponseList = dataList
-                .stream()
-                .filter(item -> item instanceof LinkedHashMap)
-                .map(item -> objectMapper.convertValue(item, InventoryResponse.class))
-                .toList();
-        boolean allProductsInStock = inventoryResponseList
-                .stream()
-                .allMatch(InventoryResponse::isInStock);
+        List<InventoryResponse> inventoryResponseList = dataList.stream().filter(item -> item instanceof LinkedHashMap)
+                                                                .map(item -> objectMapper.convertValue(item,
+                                                                                                       InventoryResponse.class
+                                                                                                      )).toList();
+        boolean allProductsInStock = inventoryResponseList.stream().allMatch(InventoryResponse::isInStock);
 
         if (!allProductsInStock) {
             throw new BadRequestException("Product is not in stock");
